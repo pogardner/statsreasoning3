@@ -1,0 +1,82 @@
+---
+title: "statsreasoning3"
+authors: "Paige Gardner"
+format: pdf
+editor: visual
+---
+
+## Libraries
+
+```{r}
+library(brms) # for statistics
+library(tidyverse) # for data wrangling
+
+# a function to scale and center. from rethinking package
+standardize <- function(x) {
+    x <- scale(x)
+    z <- as.numeric(x)
+    attr(z,"scaled:center") <- attr(x,"scaled:center")
+    attr(z,"scaled:scale") <- attr(x,"scaled:scale")
+    return(z)
+}
+```
+
+## Q1.1
+
+![](images/clipboard-129105804.png)
+
+## Q1.2 Forks
+
+U ← A → B
+
+B← C → Y
+
+## Q1.3 Colliders
+
+X→ Y← C
+
+U ← B → C
+
+## Q1.4
+
+![](images/clipboard-3111119872.png)
+
+## Q1.5
+
+X \<- U -\> B \<- C -\> Y
+
+X \<- U -\> B \<- C \<- V -\> Y
+
+X \<- U \<-A -\> C -\> Y
+
+X \<- U \<-A -\> C \<- V -\> Y
+
+### Q1.6 Identify open backdoor paths
+
+A path is open if it has no collider, and closed if it has a collider.
+
+The only open door path:
+
+X \<- U \<-A -\> C -\> Y
+
+### Q1.7 Identify variables to close the backdoor(s)
+
+Which variables to condition on?
+
+I don't fully understand what it means to condition on a variable
+
+Condition on variables U and C?
+
+# Part 2
+
+## Load in data
+
+```{r}
+library(rethinking)
+foxes <- read.csv('https://raw.githubusercontent.com/rmcelreath/rethinking/refs/heads/master/data/foxes.csv', sep = ';')
+```
+
+```{r}
+?foxes
+head(foxes)
+```
