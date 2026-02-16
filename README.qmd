@@ -116,6 +116,7 @@ For this section, we are going to implement what we learned about DAGs into an e
 
 ```{r}
 # Load in the fox data
+library(rethinking)
 foxes <- read.csv('https://raw.githubusercontent.com/rmcelreath/rethinking/refs/heads/master/data/foxes.csv', sep = ';')
 ```
 
@@ -189,11 +190,15 @@ It's pretty hard to understand what a "reasonable" fox weight is when it is in s
 
 What to you seems like a reasonable minimum weight for a fox, in kg?
 
+Answer: 5 kg
+
 ------------------------------------------------------------------------
 
 ### Q2.3 Maximum fox weight
 
 What to you seems like a reasonable minimum weight for a fox, in kg?
+
+15 kg
 
 ------------------------------------------------------------------------
 
@@ -201,17 +206,72 @@ What to you seems like a reasonable minimum weight for a fox, in kg?
 
 Remake your prior predictive simulation plot and add two horizontal lines, one each for the minimum and maximum weights that you just provided. Before plotting, make sure to *standardize* your values in kg so that they are plotted as centered values in units of standard deviation (i.e., subtract the mean and divide by the standard deviation of foxes\$weight).
 
+### Step 1: Standardize the min and max values
+
+```{r}
+
+# I asked co-pilot for help
+# I'm making a new function for single values, since you can't standardize a single value (no standard deviation)
+standardize_single <- function(x, center, scale) {
+  z <- (x - center) / scale
+  attr(z, "scaled:center") <- center
+  attr(z, "scaled:scale") <- scale
+  z
+}
+
+standardize_single(5,10,2) # simulated mean of 10, SD of 2
+standardize_single(15,10,2)
+
+# Min: -2.5
+# Max: 2.5
+```
+
+### Step 2: Plot
+
+```{r}
+ggplot(priorsims, aes(x = area, y = weight, group = group)) +
+  geom_line(alpha = 1 / 10) +
+  geom_hline(yintercept= c(-2.5, 2.5))+
+  labs(x = "Standardized Area", y = "Standardized Weight")
+
+```
+
 ------------------------------------------------------------------------
 
 ### Q2.5 Evaluate prior predictive simulation
 
 Do your priors seem reasonable? You haven't seen any data yet, though you have marked out the minimum and maximum weights you expect foxes to be. Do your priors greatly exceed those values? Please explain your thinking.
 
+Answer: The priors seem much too large. I set the maximum size as 15 kg and the minimum size as 5 kg, assuming that foxes are actually pretty small animals. I was fairly conservative in this assumption, but the priors set in the first part of this exercise have extremely large tails.
+
 ------------------------------------------------------------------------
 
 ### Q2.6 Refine priors
 
 Remake and plot a set of prior simulations that use priors you think are reasonable (adjusting the code from above would work well for this). Be sure to include the minimum and maximum fox weights that you expect. You can iterate on this a few times (simulate, plot, adjust, etc.) until you arrive at priors that make sense to you.
+
+From above: intercept *alpha* and slope *beta*: *alpha* \~ Gaussian(0, 0.2), *beta* \~ Gaussian(0, 2)
+
+I think that the effect of area on weight is being inflated. I am going to make the standard deviation 1.5 instead of 2. Update: I ran it with 1.5, then updated that to 1 because the range of weights still felt too broad.
+
+```{r}
+# this is a prior predictive simulation, and NOT the same as a brm
+n <- 1000
+priorsims_updated <- tibble(group = seq_len(n),
+       alpha = rnorm(n, 0, 0.2), # prior for alpha
+       beta = rnorm(n, 0, 1)) %>% # prior for beta
+  expand(nesting(group, alpha, beta), # the expand function gives us all possible combinations of the arguments
+         area = seq(from = -2.5, to = 2.5, length.out = 100)) %>% # set up a range of areas
+  mutate(weight = alpha + beta * area) # calculate weight from the parameters and area
+```
+
+```{r}
+ggplot(priorsims_updated, aes(x = area, y = weight, group = group)) +
+  geom_line(alpha = 1 / 10) +
+  geom_hline(yintercept= c(-2.5, 2.5))+
+  labs(x = "Standardized Area", y = "Standardized Weight")
+
+```
 
 ------------------------------------------------------------------------
 
@@ -224,9 +284,12 @@ food_on_area <- brm(avgfood ~ 1 + area,
                     data = fox_dat, 
                     family = gaussian,
                     # Here we set the priors that we investigated earlier
-                    prior = c(prior(normal(0, 0.2), class = Intercept),
-                              prior(normal(0, 2), class = b,),
-                              prior(exponential(1), class = sigma)),
+                    prior = c(prior(normal(0, 0.2), class = Intercept), # this sets the prior for the intercept (expected value
+                              # of avg food when area = 0)
+                              prior(normal(0, 1), class = b,), # this sets the prior for slope of the effect of area on avg food
+                              prior(exponential(1), class = sigma)), # prior for how much data vary around regression line
+                    # asked co-pilot for help on this: set exponential to make positive values, and allow for greater
+                    # variation around regression for larger values of area
                     iter = 4000, warmup = 2000, chains = 4, cores = 4, seed = 1234,
                     file = "output/food_on_area")
 ```
@@ -247,11 +310,34 @@ We find that for an increase of 1 standard deviation in area, we expect to see a
 
 Now infer the total impact of adding food to a territory. Run a model with `weight` as a function of `avgfood`. Based on your results, does more food make foxes heavier? In your opinion, is this expected or unexpected? Please explain in two (2) or more sentences.
 
+```{r}
+food_on_weight <- brm(weight ~ 1 + avgfood, 
+                    data = fox_dat, 
+                    family = gaussian,
+                    # Here we set the priors that we investigated earlier
+                    prior = c(prior(normal(0, 0.1), class = Intercept), # prior for the intercept (expected value
+                              # of weight when avgfood) I would think this would be negative skewed?
+                              prior(normal(0, 1), class = b,), # prior for slope of the effect of avgfood on weight
+                              prior(exponential(1), class = sigma)), # prior for how much data vary around regression line
+                    # asked co-pilot for help on this: set exponential to make positive values, and allow for greater
+                    # variation around regression for larger values of area
+                    iter = 4000, warmup = 2000, chains = 4, cores = 4, seed = 1234,
+                    file = "output/food_on_weight")
+```
+
+```{r}
+summary(food_on_weight)
+```
+
+**Summary:** The effect of food appears to be negative, but the confidence interval is really poor. It contains 0, so that says to me that the effect of avg_food on weight is either not important (which doesn't make biological sense), or we are not capturing the effect of food with the priors / model set up.
+
 ------------------------------------------------------------------------
 
 ### Q2.8 Is there a variable we should condition upon?
 
 We just estimated the total impact of `avgfood` on `weight`, which includes both direct and indirect paths. Think back to your DAG elemental confounds. If we want to estimate only the direct impact of `avgfood` on `weight`, which variable should we condition upon?
+
+**Answer:** We should condition on groupsize, which is in the middle of the pipe from avgfood -\> groupsize -\> weight
 
 ------------------------------------------------------------------------
 
@@ -266,6 +352,8 @@ First, let's look at the separate effect of `groupsize` in a univariate regressi
 ### Q2.9: What's your hypothesis about how group size affects fox weight?
 
 Before running the model, how do you think the number of foxes in a group `groupsize` would affect fox weight? Why?
+
+**Answer:** Increasing the number of foxes will increase competition for resources. Therefore, increasing groupsize would decrease fox weight.
 
 ------------------------------------------------------------------------
 
@@ -315,17 +403,29 @@ summary(food_direct)
 
 What are the effects of `avgfood` and `groupsize` now that you have accounted for both variables?
 
+The effects of food: 0.47 (95% CI 0.1-0.84)
+
+The effects of groupsize: -0.57 (95% CI -0.93 - -0.20)
+
 ------------------------------------------------------------------------
 
 #### Q2.10b
 
 How does this interpretation change your interpretation from the univariate regressions of each variable separately with `weight`?
 
+The univariate regressions showed no effect of avg food or group size on weight, which biologically did not make sense. When conditioning on groupsize, we see that the effect of group size on weight is strongly negative, and the effect of avg food is strongly positive.
+
 ------------------------------------------------------------------------
 
 #### Q2.10c
 
 Provide a small discussion (2-4 sentences) explaining in your own words why these results turned out the way they did, in the context of the ecological system of fox territories. Include why you think that the univariate regressions may have suggested no relationship while the multiple regression suggests a different answer.
+
+Fox territories are a factor of three main variables: area, amount of food present, and group size. The amount of food in a territory is a function of area and how many individuals are present in the area that have to share the food. Because group size is a function of the amount of food present, we conditioned the model on this variable to estimate the direct effect of average food on fox size. When conditioning on group size, the effect of food increases fox weight by 0.47 unit of body weight per unit of food. However, group size decreases fox weight by 0.57 unit weight per individual added to the group. A univariate model does not account for how different variables change as a function of another, so a univariate model masks the true relationships.
+
+```{r}
+?foxes
+```
 
 ------------------------------------------------------------------------
 
